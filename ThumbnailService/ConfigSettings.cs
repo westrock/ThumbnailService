@@ -12,6 +12,6 @@ namespace ThumbnailService
         public string OutputFolder { get; set; }
         public int MaxWidth { get; set; }
         public int MaxHeight { get; set; }
-
+        public int SleepSeconds { get; set; }
     }
 }

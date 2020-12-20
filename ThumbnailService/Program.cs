@@ -17,9 +17,10 @@ namespace ThumbnailService
         {
             ConfigSettings settings = new ConfigSettings()
             {
-                MaxHeight = ConfigurationManager.AppSettings["MaxHeight"].Int(),
-                MaxWidth = ConfigurationManager.AppSettings["MaxWidth"].Int(),
+                MaxHeight = ConfigurationManager.AppSettings["MaxHeight"].Int(144),
+                MaxWidth = ConfigurationManager.AppSettings["MaxWidth"].Int(144),
                 OutputFolder =  ConfigurationManager.AppSettings["OutputFolder"],
+                SleepSeconds = ConfigurationManager.AppSettings["SleepSeconds"].Int(5),
                 WatchFolder = ConfigurationManager.AppSettings["WatchFolder"],
             };
 

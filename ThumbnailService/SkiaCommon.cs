@@ -1,4 +1,5 @@
-﻿using System;
+﻿using SkiaSharp;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -9,7 +10,8 @@ namespace ThumbnailService
     public static class SkiaCommon
     {
         private const int POINTS_PER_INCH = 72; //seconds
-
+        public static int HeightDotsFloor(this SKRect rect, int dpi) => rect.Height.ToDots(dpi).Floor();
+        public static int WidthDotsFloor(this SKRect rect, int dpi) => rect.Width.ToDots(dpi).Floor();
         public static decimal Decimal(this float value) => (decimal)value;
         public static float Float(this decimal value) => (float)value;
         public static int Floor(this float value) => (int)value;
@@ -38,9 +40,9 @@ namespace ThumbnailService
             return (dpi == POINTS_PER_INCH) ? dots : Convert.ToInt32((dots / dpi) * POINTS_PER_INCH);
         }
 
-        public static int Int(this string value)
+        public static int Int(this string value, int defaultValue = -1)
         {
-            return int.TryParse(value, out int intValue) ? intValue : -1;
+            return int.TryParse(value, out int intValue) ? intValue : defaultValue;
         }
     }
 }

@@ -34,7 +34,7 @@ namespace ThumbnailService
             TimeSpan thirtySecondTimeSpan = TimeSpan.FromSeconds(30);
             DateTime lastCollectionTime = DateTime.Now;
             DateTime lastNotifyTime = DateTime.Now.AddMonths(-1);
-            List<string> imageFileExtensions = new List<string> { ".jpg", ".png" };
+            List<string> imageFileExtensions = new List<string> { ".JPG", ".PNG" };
             SkiaImageFactory factory = new SkiaImageFactory(settings);
 
             _Stop = false;
@@ -48,7 +48,7 @@ namespace ThumbnailService
                     +----------------------------------------------------------------------------------*/
                     // Do some work
 
-                    List<FileInfo> allFiles = new DirectoryInfo(settings.WatchFolder).GetFiles().Where(f => imageFileExtensions.Contains(f.Extension.ToLowerInvariant())).ToList();
+                    List<FileInfo> allFiles = new DirectoryInfo(settings.WatchFolder).GetFiles().Where(f => imageFileExtensions.Contains(f.Extension.ToUpper(CultureInfo.InvariantCulture))).ToList();
 
                     foreach (FileInfo file in allFiles)
                     {
@@ -57,9 +57,8 @@ namespace ThumbnailService
 
                         File.Move(file.FullName, copyName);
 
-                        SkiaSharp.SKSurface surface = null;
                         SkiaSharp.SKRect targetRect = new SkiaSharp.SKRect(0, 0, settings.MaxWidth, settings.MaxHeight);
-                        factory.BuildSheet(targetRect, ref surface, copyName, 0, thumbName);
+                        factory.BuildSheet(targetRect, copyName, 0, thumbName);
                     }
 
                     Thread.Sleep(thirtySecondTimeSpan);
@@ -138,16 +137,8 @@ namespace ThumbnailService
         protected ConfigSettings _Settings { get; set; }
 
         protected SKCanvas _Canvas { get; set; }
-        // check contents in document
-        protected bool _HasContents { get; set; } = false;
-        // support for store number extraction support
 
         protected int _MasterSheetNumber { get; set; }
-        protected bool _IsDownTheStackImposition { get; set; }
-
-        // delimiter constant
-        protected int _SheetWidth { get; set; }
-        protected int _SheetHeight { get; set; }
 
         public int DeviceDPI { get; set; } = 72;
 
@@ -222,22 +213,6 @@ namespace ThumbnailService
 
         #region RenderImage
 
-        public void RenderImage(string imageFileName, int containerRotation, SKRect container)
-        {
-            string fileExtension = Path.GetExtension(imageFileName).ToLowerInvariant();
-
-            if (!(fileExtension == ".jpg" || fileExtension == ".png" || fileExtension == ".gif"))
-            {
-                return;
-            }
-
-            using (SKBitmap skImg = SKBitmap.Decode(imageFileName))
-            {
-                RenderBitMap(skImg, containerRotation, container);
-            }
-        }
-
-
         public void RenderBitMap(SKBitmap skImg, int containerRotation, SKRect container)
         {
             decimal imageScale = Math.Max(skImg.Height / container.Height, skImg.Width / container.Width).Decimal();
@@ -278,45 +253,8 @@ namespace ThumbnailService
 
         #region BatchPrinting 
 
-        private void SetUpCanvas(ref SKSurface surface, SKRect container)
+        public void BuildSheet(SKRect container, string imageFileName, int imageRotation, string printPath)
         {
-            int w = container.Width.ToDots(DeviceDPI).Floor();
-            int h = container.Height.ToDots(DeviceDPI).Floor();
-            SKImageInfo sKImageInfo = new SKImageInfo(w, h);
-            _SheetWidth = w;
-            _SheetHeight = h;
-
-            surface = SKSurface.Create(sKImageInfo);
-
-            _Canvas = surface.Canvas;
-            _Canvas.Clear(SKColors.White);
-        }
-
-        public void BuildSheet(SKRect container,
-            ref SkiaSharp.SKSurface surface, string imageFileName, int imageRotation,
-            string printPath)
-        {
-            string printFileName = string.Empty;
-            string sheetPrintFileName = string.Empty;
-            string printPathDirectory = string.Empty;
-            bool renderingInMemory;
-
-            if (string.IsNullOrWhiteSpace(printPath))
-            {
-                renderingInMemory = true;
-            }
-            else
-            {
-                FileInfo fileInfo = new FileInfo(printPath);
-
-                printPathDirectory = fileInfo.DirectoryName;
-                printFileName = fileInfo.Name;
-                sheetPrintFileName = printPath;
-
-                renderingInMemory = false;
-            }
-
-
             using (SKBitmap skImg = SKBitmap.Decode(imageFileName))
             {
                 var scaleX = container.Width / skImg.Width;
@@ -324,27 +262,27 @@ namespace ThumbnailService
                 var useScale = Math.Min(scaleX, scaleY);
                 container.Right = container.Width * useScale / scaleX; // Assume left of 0
                 container.Bottom = container.Height * useScale / scaleY; // Assume top of 0
+                SKImageInfo sKImageInfo = new SKImageInfo(container.WidthDotsFloor(DeviceDPI), container.HeightDotsFloor(DeviceDPI));
 
-                if (renderingInMemory || surface is null)
+                using (SKSurface surface = SKSurface.Create(sKImageInfo))
                 {
-                    SetUpCanvas(ref surface, container);
+                    _Canvas = surface.Canvas;
+                    _Canvas.Clear(SKColors.White);
+
                     if (imageRotation != 0)
                     {
                         _Canvas.RotateDegrees(imageRotation);
                     }
                     _Canvas.Translate(-container.Left.ToDots(DeviceDPI), -container.Top.ToDots(DeviceDPI));
+
+                    RenderBitMap(skImg, imageRotation, container);
+
+                    if (surface != null)
+                    {
+                        SaveSurfaceToFile(surface, printPath, MAXIMUM_IMAGE_QUALITY);
+                    }
                 }
-
-                RenderBitMap(skImg, imageRotation, container);
             }
-
-            _HasContents = true;
-
-            if (!(surface is null) && !string.IsNullOrWhiteSpace(sheetPrintFileName))
-            {
-                SaveSurfaceToFile(surface, printPath, MAXIMUM_IMAGE_QUALITY);
-            }
-
         }
 
         #endregion
