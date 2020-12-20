@@ -1,6 +1,6 @@
 ﻿namespace ThumbnailService
 {
-    partial class Service1
+    partial class ThumbnailService
     {
         /// <summary> 
         /// Required designer variable.
