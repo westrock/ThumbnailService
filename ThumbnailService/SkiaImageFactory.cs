@@ -7,6 +7,7 @@ using SkiaSharp;
 using System.Globalization;
 using System.Collections.Concurrent;
 using System.Threading;
+using System.Diagnostics;
 
 namespace ThumbnailService
 {
@@ -16,11 +17,7 @@ namespace ThumbnailService
 
         public const int MAXIMUM_IMAGE_QUALITY = 100;
 
-        private const char _ImageFileDelimiter = '?';
-        private const int _FontFileRetryTime = 30; //seconds
-
         private ConcurrentDictionary<string, SKTypeface> _LocalFontDictionary;
-        private static readonly object _Locker = new object();
         private static bool _Stop;
         private static readonly object _StopLock = new object();
 
@@ -31,11 +28,12 @@ namespace ThumbnailService
 
         public static void MainLoop(ConfigSettings settings)
         {
-            TimeSpan thirtySecondTimeSpan = TimeSpan.FromSeconds(30);
+            TimeSpan sleepSecondTimeSpan = TimeSpan.FromSeconds(settings.SleepSeconds);
             DateTime lastCollectionTime = DateTime.Now;
             DateTime lastNotifyTime = DateTime.Now.AddMonths(-1);
             List<string> imageFileExtensions = new List<string> { ".JPG", ".PNG" };
             SkiaImageFactory factory = new SkiaImageFactory(settings);
+            Regex watchFoldersRegex = new Regex(settings.DropFolderRegex);
 
             _Stop = false;
 
@@ -48,31 +46,88 @@ namespace ThumbnailService
                     +----------------------------------------------------------------------------------*/
                     // Do some work
 
-                    List<FileInfo> allFiles = new DirectoryInfo(settings.WatchFolder).GetFiles().Where(f => imageFileExtensions.Contains(f.Extension.ToUpper(CultureInfo.InvariantCulture))).ToList();
-
-                    foreach (FileInfo file in allFiles)
+                    var watchDirectories = Directory.GetDirectories(settings.WatchFolderRoot);
+                    foreach (string watchDirectory in watchDirectories)
                     {
-                        string copyName = Path.Combine(settings.OutputFolder, file.Name);
-                        string thumbName = Path.Combine(settings.OutputFolder, $"{Path.GetFileNameWithoutExtension(file.Name)}.Thumb.jpg");
+                        var match = watchFoldersRegex.Match(watchDirectory);
+                        if (match.Success)
+                        {
+                            WatchFolderSettings watchFolderSettings = new WatchFolderSettings(match, settings);
+                            string workingDirectory;
 
-                        File.Move(file.FullName, copyName);
+                            if (string.IsNullOrWhiteSpace(watchFolderSettings.ActualNameSpec) && Path.Combine(watchDirectory) != match.Value)
+                            {
+                                DirectoryInfo di = new DirectoryInfo(watchDirectory);
+                                if (di.Name != match.Value)
+                                {
+                                    continue;
+                                }
 
-                        SkiaSharp.SKRect targetRect = new SkiaSharp.SKRect(0, 0, settings.MaxWidth, settings.MaxHeight);
-                        factory.BuildSheet(targetRect, copyName, 0, thumbName);
+                                workingDirectory = NormalizeWatchDirectory(watchDirectory, watchFolderSettings);
+                            }
+                            else
+                            {
+                                workingDirectory = watchDirectory;
+                            }
+
+                            List<FileInfo> allFiles = new DirectoryInfo(workingDirectory).GetFiles().Where(f => imageFileExtensions.Contains(f.Extension.ToUpper(CultureInfo.InvariantCulture))).ToList();
+
+                            if (allFiles.Count > 0)
+                            {
+                                string outputFolder = Path.Combine(settings.OutputFolderRoot, $"{settings.DefaultOutputFolder}{watchFolderSettings.NameSpec}");
+
+                                if (!Directory.Exists(outputFolder))
+                                {
+                                    Directory.CreateDirectory(outputFolder);
+                                }
+
+                                foreach (FileInfo file in allFiles)
+                                {
+
+                                    string copyName = Path.Combine(outputFolder, file.Name);
+                                    string thumbName = Path.Combine(outputFolder, $"{Path.GetFileNameWithoutExtension(file.Name)}.Thumb.{watchFolderSettings.Format}");
+
+                                    File.Move(file.FullName, copyName);
+
+                                    SkiaSharp.SKRect targetRect = new SkiaSharp.SKRect(0, 0, watchFolderSettings.Width, watchFolderSettings.Height);
+                                    factory.BuildSheet(targetRect, copyName, 0, thumbName);
+                                }
+                            }
+                        }
                     }
-
-                    Thread.Sleep(thirtySecondTimeSpan);
 #if poop
                     lock (_StopLock)
                     {
-                        Monitor.Wait(_StopLock, TimeSpan.FromMinutes(_MonitorPollIntervalInMinutes));
+                        Monitor.Wait(_StopLock, sleepSecondTimeSpan);
                     }
 #endif
                 }
                 catch (Exception ex)
                 {
+                    settings.Logger.LogException(ex);
                 }
+
+                Thread.Sleep(sleepSecondTimeSpan);
             }
+        }
+
+
+        private static string NormalizeWatchDirectory(string watchDirectory, WatchFolderSettings watchFolderSettings)
+        {
+            string replacementDirectory = Path.Combine(Directory.GetParent(watchDirectory).FullName, $"{watchFolderSettings.FullName}{watchFolderSettings.NameSpec}");
+
+            if (Directory.Exists(replacementDirectory))
+            {
+                Directory.GetFiles(watchDirectory).ToList().ForEach(f => File.Move(f, Path.Combine(replacementDirectory, Path.GetFileName(f))));
+                Directory.Move(watchDirectory, Path.Combine(Directory.GetParent(watchDirectory).FullName, $"{watchFolderSettings.FullName}(MovedTo {watchFolderSettings.FullName}{watchFolderSettings.NameSpec})"));
+            }
+            else
+            {
+                Directory.Move(watchDirectory, replacementDirectory);
+                Directory.CreateDirectory(Path.Combine(Directory.GetParent(watchDirectory).FullName, $"{watchFolderSettings.FullName}(MovedTo {watchFolderSettings.FullName}{watchFolderSettings.NameSpec})"));
+            }
+
+            return replacementDirectory;
         }
 
 
@@ -98,10 +153,12 @@ namespace ThumbnailService
 
         public void SaveSurfaceToFile(SKSurface surface, string printPath, int quality)
         {
+            string format = Path.GetExtension(printPath);
+            SKEncodedImageFormat outputFormat = (format == "jpg") ? SKEncodedImageFormat.Jpeg : SKEncodedImageFormat.Png;
             //save the image
             using (SKImage image = surface.Snapshot())
             {
-                using (SKData data = image.Encode(SKEncodedImageFormat.Jpeg, MAXIMUM_IMAGE_QUALITY))
+                using (SKData data = image.Encode(outputFormat, MAXIMUM_IMAGE_QUALITY))
                 {
                     using (FileStream stream = File.OpenWrite(printPath))
                     {
