@@ -31,7 +31,7 @@ namespace ThumbnailService
             TimeSpan sleepSecondTimeSpan = TimeSpan.FromSeconds(settings.SleepSeconds);
             DateTime lastCollectionTime = DateTime.Now;
             DateTime lastNotifyTime = DateTime.Now.AddMonths(-1);
-            List<string> imageFileExtensions = new List<string> { ".JPG", ".PNG" };
+            List<string> imageFileExtensions = new List<string> { ".JPG", ".JPEG", ".PNG" };
             SkiaImageFactory factory = new SkiaImageFactory(settings);
             Regex watchFoldersRegex = new Regex(settings.DropFolderRegex);
 
